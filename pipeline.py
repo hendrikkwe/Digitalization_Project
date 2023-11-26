@@ -8,6 +8,18 @@ import requests
 import time
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
+USE_API = True
+
+if not USE_API:
+    tokenizer_climate_related = AutoTokenizer.from_pretrained("climatebert/distilroberta-base-climate-detector")
+    model_climate_related = AutoModelForSequenceClassification.from_pretrained("climatebert/distilroberta-base-climate-detector")
+
+    tokenizer_ron = AutoTokenizer.from_pretrained("climatebert/distilroberta-base-climate-sentiment")
+    model_ron = AutoModelForSequenceClassification.from_pretrained("climatebert/distilroberta-base-climate-sentiment")
+
+    tokenizer_tcfd = AutoTokenizer.from_pretrained("climatebert/distilroberta-base-climate-tcfd")
+    model_tcfd = AutoModelForSequenceClassification.from_pretrained("climatebert/distilroberta-base-climate-tcfd")
+
 headers = {"Authorization": "Bearer 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"}
 API_URL_climate_related = "https://api-inference.huggingface.co/models/climatebert/distilroberta-base-climate-detector"
 API_URL_ron = "https://api-inference.huggingface.co/models/climatebert/distilroberta-base-climate-sentiment"
@@ -38,7 +50,7 @@ def pipeline(df: pd.DataFrame) -> pd.DataFrame:
 
     for index, row in df.iterrows():
         
-        print("Row: ", row)
+        #print("Row: ", row)
 
         # climate related label, update row in df with output of add_climate_related_label 
         row = add_climate_related_label(row)
@@ -57,7 +69,7 @@ def pipeline(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 def add_climate_related_label(row: pd.Series) -> pd.Series:
-    response = request_label(row["text"], API_URL_climate_related)
+    response = request_label(row["text"][0:30], API_URL_climate_related)
 
     if find_highest_score(response[0]) == "no":
         row["climate_related"] = 'False'
@@ -100,10 +112,10 @@ def request_label(text: str, api_url: str) -> str:
     payload = {"inputs": text}
     response = requests.post(api_url, headers=headers, json=payload)
 
+    print(response.status_code)
     if response.status_code == 200:
         return response.json()
     else:
-        print(response.status_code)
         return [[{'label': 'api_failed', 'score': 1}]]
 
 def find_highest_score(json: list) -> str:
@@ -137,11 +149,7 @@ def filter(df: pd.DataFrame) -> pd.DataFrame:
     return df.loc[(df['climate_related'] == True) & (df['domain'] == TCFDDomain.Strategy.value) & (df['ron'] == Ron.Risk.value)]
 
 if "__main__" == __name__: 
-
-    
-
-
-    '''folder_path = 'pdfs'
+    folder_path = 'pdfs'
     files = os.listdir(folder_path)
     document_names = [file for file in files if file.endswith('.pdf')]
 
@@ -164,11 +172,11 @@ if "__main__" == __name__:
         df = pipeline(df)
         store_df(df)
     
-    print(filter(df))'''
-    print("start")
+    #print(filter(df))
+    '''print("start")
     
     df = pd.DataFrame({"text": ["Climate Stategy"], "climate_related": [pd.NA], "domain": [pd.NA], "ron": [pd.NA]})
 
     df = pipeline(df)
 
-    print(df)
+    print(df)'''
