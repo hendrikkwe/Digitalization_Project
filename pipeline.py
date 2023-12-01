@@ -1,5 +1,6 @@
 import os
 import json
+import numpy as np
 import pandas as pd
 from pypdf import PdfReader
 from tqdm import tqdm
@@ -119,6 +120,9 @@ def request_label(text: str, api_url: str) -> str:
         return response.json()
     else:
         return [[{'label': 'api_failed', 'score': 1}]]
+    
+def request_label_local(): 
+    pass 
 
 def request_label_local(text: str, tokenizer, model):
     input = tokenizer(text, return_tensors="pt")
@@ -140,7 +144,7 @@ def find_highest_score(json: list) -> str:
             highest_score_label = i["label"]
     return highest_score_label
 
-def extract(pdf_path: str) -> pd.DataFrame:
+def extract_pagewise(pdf_path: str) -> pd.DataFrame:
 
     df = pd.DataFrame(columns=["pdf_name","page_nr", "climate_related","domain" ,"ron", "transition", "text"])
     df["climate_related"] = df["climate_related"].astype(str)
@@ -153,10 +157,68 @@ def extract(pdf_path: str) -> pd.DataFrame:
 
         df = df._append({"pdf_name": pdf_path.split(".")[0].split("/")[-1],"text":page.extract_text(),"page_nr":  i + 1}, ignore_index = True)
 
+    return clean_df(df)
+
+def extract_kwordwise(pdf_path: str, k: int) -> pd.DataFrame:
+    df = pd.DataFrame(columns=["pdf_name","page_nr", "page_section" ,"climate_related","domain" ,"ron", "transition", "text"])
+    df["climate_related"] = df["climate_related"].astype(str)
+    df["domain"] = df["domain"].astype(str)
+    df["ron"] = df["ron"].astype(str)
+
+    reader = PdfReader(pdf_path)
+
+    for i, page in enumerate(tqdm(reader.pages, desc="Extracting text")):
+        text = page.extract_text()
+        text = text.split(" ")
+        #df = df._append({"pdf_name": pdf_path.split(".")[0].split("/")[-1],"text":page.extract_text(),"page_nr":  i + 1}, ignore_index = True)
+        for j in range(0, len(text), k):
+            df = df._append({"pdf_name": pdf_path.split(".")[0].split("/")[-1],"text": " ".join(text[j:j+k]),"page_nr":  i + 1, "page_section": int(j/k)}, ignore_index = True)
+    return clean_df(df)
+
+# TODO: improve filtering
+# TODO: improve sentence splitting 
+def extract_ksentencewise(pdf_path: str, k: int, threshold: int = 1e10) -> pd.DataFrame:
+    df = pd.DataFrame(columns=["pdf_name","page_nr", "page_section" ,"climate_related","domain" ,"ron", "transition", "text"])
+    df["climate_related"] = df["climate_related"].astype(str)
+    df["domain"] = df["domain"].astype(str)
+    df["ron"] = df["ron"].astype(str)
+
+    threshold = threshold - 1
+
+    reader = PdfReader(pdf_path)
+
+    for i, page in enumerate(tqdm(reader.pages, desc="Extracting text")):
+        text = page.extract_text()
+        text = text.split(".")
+        print(f"maximum sentence length: {np.max([len(i) for i in text])}")
+        j = 0
+        while j < len(text):
+            j_text = ".".join(text[j:j+k])
+            j = j + k
+            while len(j_text) > threshold:
+                j_text = ".".join(j_text.split(".")[:-1]) 
+                j = j - 1
+                if len(j_text) == 0:
+                    raise Exception(f"Threshold too low, minimum sentence length for this pdf is {len(text[j]) + 1}")
+            df = df._append({"pdf_name": pdf_path.split(".")[0].split("/")[-1],"text": j_text + ".","page_nr":  i + 1, "page_section": int(j/k)}, ignore_index = True)
+    return clean_df(df)
+
+def clean_df(df: pd.DataFrame) -> pd.DataFrame:
+    # remove duplicates
+    df = df.drop_duplicates(subset=["text"])
+    
+    # remove \n from text 
+    df["text"] = df["text"].str.replace("\n", " ")
+
+    # remove text at the beginning and the end of the text
+    df["text"] = df["text"].str.strip()
     return df
 
-def store_df(df: pd.DataFrame):
-    df.to_csv(f"outputs/{df['pdf_name'][0]}.csv")
+def store_df(df: pd.DataFrame, store_at: str = False):
+    if not store_at: 
+        df.to_csv(f"outputs/{df['pdf_name'][0]}.csv", sep=";")
+    else: 
+        df.to_csv(f"{store_at}/{df['pdf_name'][0]}.csv", sep=";")
 
 def filter(df: pd.DataFrame) -> pd.DataFrame:
     return df.loc[(df['climate_related'] == True) & (df['domain'] == TCFDDomain.Strategy.value) & (df['ron'] == Ron.Risk.value)]
@@ -178,10 +240,13 @@ if "__main__" == __name__:
 
         if document_name.split(".")[-2] in csv_names:
             print(f"Load {document_name.split('.')[-2]}")
-            df = pd.read_csv(f"outputs/{document_name.split('.')[-2]}.csv", index_col=0)
+            df = pd.read_csv(f"outputs/{document_name.split('.')[-2]}.csv", index_col=0, on_bad_lines='skip', sep=";")
+            print(df.head())
+            print(len(df.index))
         else:
             print(f"Extract {document_name.split('.')[-2]}")
-            df = extract(f"pdfs/{document_name}")
+            #df = extract_kwordwise(f"pdfs/{document_name}", 120)
+            df = extract_pagewise(f"pdfs/{document_name}", 5)
         df = pipeline(df)
         store_df(df)
 
@@ -193,3 +258,16 @@ if "__main__" == __name__:
     df = pipeline(df)
 
     print(df)'''
+
+    '''df = extract_kwordwise("pdfs/Commerzbank_2022_EN-2.pdf", 40)
+    print(df.head())
+    store_df(df)'''
+
+    #df = extract_ksentencewise("/Users/hendrikwe/Lorem.pdf", 5, 109)
+    #store_df(df, "/Users/hendrikwe/")
+
+    #df = pd.DataFrame({"text": ["   Climate Stategy"], "climate_related": [pd.NA], "domain": [pd.NA], "ron": [pd.NA]})
+
+    #print(df.head())
+    #print(clean_df(df).head())
+    
