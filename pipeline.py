@@ -7,6 +7,8 @@ from enum import Enum
 import requests
 import time
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
+import torch
+import torch.nn.functional as F
 
 USE_API = True
 
@@ -28,7 +30,7 @@ API_URL_tcfd = "https://api-inference.huggingface.co/models/climatebert/distilro
 class TCFDDomain(Enum):
     Governance = "Governance"
     Strategy = "Strategy"
-    RiskManagement = "RiskManagement" 
+    RiskManagement = "RiskManagement"
     MetricsTargets = "MetricsTargets"
     NotDefined = "NotDefined"
 
@@ -40,23 +42,23 @@ class Ron(Enum):
 
 """
 GOAL:
-    labeled df of form: 
-    # pdf_name | text | page_nr | climate_related | domain | r.o.n. | ?transition 
-    #                           | no              | nan 
+    labeled df of form:
+    # pdf_name | text | page_nr | climate_related | domain | r.o.n. | ?transition
+    #                           | no              | nan
 """
 
 def pipeline(df: pd.DataFrame) -> pd.DataFrame:
-    # extraction: pdf -> json of pages 
+    # extraction: pdf -> json of pages
 
     for index, row in df.iterrows():
-        
+
         #print("Row: ", row)
 
-        # climate related label, update row in df with output of add_climate_related_label 
+        # climate related label, update row in df with output of add_climate_related_label
         row = add_climate_related_label(row)
         df.loc[index] = row
-        
-        if row["climate_related"] == 'True': 
+
+        if row["climate_related"] == 'True':
             print("Climate related")
             row = add_domain_label(row)
             df.loc[index] = row
@@ -65,7 +67,7 @@ def pipeline(df: pd.DataFrame) -> pd.DataFrame:
                 print("Strategy")
                 row = add_ron_label(row)
                 df.loc[index] = row
-    
+
     return df
 
 def add_climate_related_label(row: pd.Series) -> pd.Series:
@@ -75,14 +77,14 @@ def add_climate_related_label(row: pd.Series) -> pd.Series:
         row["climate_related"] = 'False'
     elif find_highest_score(response[0]) == "yes":
         row["climate_related"] = 'True'
-    else: 
+    else:
         row["climate_related"] = 'api_failed'
     return row
-    
+
 def add_domain_label(row: pd.Series) -> pd.Series:
-    
+
     response = request_label(row["text"], API_URL_tcfd)
-    
+
     if find_highest_score(response[0]) == "governance":
         row["domain"] = TCFDDomain.Governance.value
     elif find_highest_score(response[0]) == "strategy":
@@ -97,14 +99,14 @@ def add_domain_label(row: pd.Series) -> pd.Series:
 
 def add_ron_label(row: pd.Series) -> pd.Series:
     response = request_label(row["text"], API_URL_ron)
-
+    print(response)
     if find_highest_score(response[0]) == "risk":
         row["ron"] = Ron.Risk.value
     elif find_highest_score(response[0]) == "opportunity":
         row["ron"] = Ron.Opportunity.value
     elif find_highest_score(response[0]) == "neutral":
         row["ron"] = Ron.Neutral.value
-    else: 
+    else:
         row["ron"] = "api_failed"
     return row
 
@@ -118,10 +120,21 @@ def request_label(text: str, api_url: str) -> str:
     else:
         return [[{'label': 'api_failed', 'score': 1}]]
 
+def request_label_local(text: str, tokenizer, model):
+    input = tokenizer(text, return_tensors="pt")
+    output = model(**input)
+    probabilities = F.softmax(output.logits, dim=1)
+    predicted_class = torch.argmax(probabilities, dim=1).item()
+
+    # define return value
+    print(model.config.id2label[predicted_class])
+    print(probabilities[0][predicted_class])
+    return
+
 def find_highest_score(json: list) -> str:
     highest_score = 0
     highest_score_label = ""
-    for i in json: 
+    for i in json:
         if i["score"] > highest_score:
             highest_score = i["score"]
             highest_score_label = i["label"]
@@ -135,20 +148,20 @@ def extract(pdf_path: str) -> pd.DataFrame:
     df["ron"] = df["ron"].astype(str)
 
     reader = PdfReader(pdf_path)
-    
+
     for i, page in enumerate(tqdm(reader.pages, desc="Extracting text")):
-    
+
         df = df._append({"pdf_name": pdf_path.split(".")[0].split("/")[-1],"text":page.extract_text(),"page_nr":  i + 1}, ignore_index = True)
 
-    return df 
+    return df
 
-def store_df(df: pd.DataFrame): 
+def store_df(df: pd.DataFrame):
     df.to_csv(f"outputs/{df['pdf_name'][0]}.csv")
 
 def filter(df: pd.DataFrame) -> pd.DataFrame:
     return df.loc[(df['climate_related'] == True) & (df['domain'] == TCFDDomain.Strategy.value) & (df['ron'] == Ron.Risk.value)]
 
-if "__main__" == __name__: 
+if "__main__" == __name__:
     folder_path = 'pdfs'
     files = os.listdir(folder_path)
     document_names = [file for file in files if file.endswith('.pdf')]
@@ -163,7 +176,7 @@ if "__main__" == __name__:
 
     for document_name in document_names:
 
-        if document_name.split(".")[-2] in csv_names: 
+        if document_name.split(".")[-2] in csv_names:
             print(f"Load {document_name.split('.')[-2]}")
             df = pd.read_csv(f"outputs/{document_name.split('.')[-2]}.csv", index_col=0)
         else:
@@ -171,10 +184,10 @@ if "__main__" == __name__:
             df = extract(f"pdfs/{document_name}")
         df = pipeline(df)
         store_df(df)
-    
+
     #print(filter(df))
     '''print("start")
-    
+
     df = pd.DataFrame({"text": ["Climate Stategy"], "climate_related": [pd.NA], "domain": [pd.NA], "ron": [pd.NA]})
 
     df = pipeline(df)
