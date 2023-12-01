@@ -121,8 +121,16 @@ def request_label(text: str, api_url: str) -> str:
     else:
         return [[{'label': 'api_failed', 'score': 1}]]
     
-def request_label_local(): 
-    pass 
+def request_label_local(text: str, tokenizer, model):
+    input = tokenizer(text, return_tensors="pt")
+    output = model(**input)
+    probabilities = F.softmax(output.logits, dim=1)
+    predicted_class = torch.argmax(probabilities, dim=1).item()
+
+    # define return value
+    print(model.config.id2label[predicted_class])
+    print(probabilities[0][predicted_class])
+    return
 
 def request_label_local(text: str, tokenizer, model):
     input = tokenizer(text, return_tensors="pt")
