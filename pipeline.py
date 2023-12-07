@@ -12,7 +12,7 @@ import torch
 import torch.nn.functional as F
 import re
 
-USE_API = True
+USE_API = False
 
 if not USE_API:
     tokenizer_climate_related = AutoTokenizer.from_pretrained("climatebert/distilroberta-base-climate-detector")
@@ -58,7 +58,7 @@ def pipeline(df: pd.DataFrame) -> pd.DataFrame:
         row = add_climate_related_label(row)
         df.loc[index] = row
         print(row)
-        if row["climate_related_no"] < row["climate_related_yes"]: 
+        if row["climate_related_no"] < row["climate_related_yes"]:
             print("Climate related")
             row = add_domain_label(row)
             df.loc[index] = row
@@ -74,22 +74,27 @@ def pipeline(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 def add_climate_related_label(row: pd.Series) -> pd.Series:
-    response = request_label_api(row["text"][0:30], API_URL_climate_related)
-
+    if USE_API == True:
+        response = request_label_api(row["text"][0:30], API_URL_climate_related)
+    else:
+        response = request_label_local(row["text"][0:30], tokenizer_climate_related, model_climate_related)
     print(type(response))
 
-    if type(response) == dict:    
+    if type(response) == dict:
         row["climate_related_no"] = response["no"]
         row["climate_related_yes"] = response["yes"]
     else:
         row["climate_related_no"] = 0
         row["climate_related_yes"] = 0
-    
+
     return row
 
 def add_domain_label(row: pd.Series) -> pd.Series:
-    response = request_label_api(row["text"], API_URL_tcfd)
-    
+    if USE_API == True:
+        response = request_label_api(row["text"], API_URL_tcfd)
+    else:
+        response = request_label_local(row["text"][0:30], tokenizer_tcfd, model_tcfd)
+
     if type(response) == dict:
         row["domain_MetricsTargets"] = response["metrics"]
         row["domain_RiskManagement"] = response["risk"]
@@ -104,13 +109,16 @@ def add_domain_label(row: pd.Series) -> pd.Series:
     return row
 
 def add_ron_label(row: pd.Series) -> pd.Series:
-    response = request_label_api(row["text"], API_URL_ron)
-    
+    if USE_API == True:
+        response = request_label_api(row["text"], API_URL_ron)
+    else:
+        response = request_label_local(row["text"][0:30], tokenizer_ron, model_ron)
+
     if type(response) == dict:
         row["ron_risk"] = response["risk"]
         row["ron_opportunity"] = response["opportunity"]
         row["ron_neutral"] = response["neutral"]
-    else: 
+    else:
         row["ron_risk"] = 0
         row["ron_opportunity"] = 0
         row["ron_neutral"] = 0
@@ -131,34 +139,21 @@ def request_label_api(text: str, api_url: str) -> str:
         return {r["label"]:r["score"] for r in response.json()[0]}
     else:
         return [[{'label': 'api_failed', 'score': 1}]]
-    
+
 def request_label_local(text: str, tokenizer, model):
     '''
     return format old: [[{'label': 'no', 'score': 0.9543747901916504}, {'label': 'yes', 'score': 0.04562525078654289}]]
     return format new: {'no': 0.9543747901916504, 'yes': 0.04562525078654289}
     '''
-
     input = tokenizer(text, return_tensors="pt")
     output = model(**input)
     probabilities = F.softmax(output.logits, dim=1)
-    predicted_class = torch.argmax(probabilities, dim=1).item()
+    # predicted_class = torch.argmax(probabilities, dim=1).item()
 
-    # define return value
-    print(model.config.id2label[predicted_class])
-    print(probabilities[0][predicted_class])
-    return 
-
-def request_label_local(text: str, tokenizer, model):
-    input = tokenizer(text, return_tensors="pt")
-    output = model(**input)
-    probabilities = F.softmax(output.logits, dim=1)
-    predicted_class = torch.argmax(probabilities, dim=1).item()
-
-    # define return value
-    print(model.config.id2label[predicted_class])
-    print(probabilities[0][predicted_class])
-    return
-
+    response = {}
+    for key, label in model.config.id2label.items():
+        response[label] = probabilities[0][key].item()
+    return response
 
 def find_highest_score(json: list) -> str:
     highest_score = 0
@@ -180,7 +175,7 @@ def extract_pagewise(pdf_path: str) -> pd.DataFrame:
         df = df._append({"pdf_name": pdf_path.split(".")[0].split("/")[-1],"text":page.extract_text(),"page_nr":  i + 1}, ignore_index = True)
 
     return clean_df(df)
-     
+
 def extract_kwordwise(pdf_path: str, k: int) -> pd.DataFrame:
     df = pd.DataFrame(columns=["pdf_name","page_nr", "page_section" ,"climate_related_no","climate_related_yes","domain_MetricsTargets","domain_RiskManagement" ,"domain_Strategy", "domain_Governance" ,"ron_risk", "ron_opportunity", "ron_neutral", "transition_risk_label", "text"])
 
@@ -195,7 +190,7 @@ def extract_kwordwise(pdf_path: str, k: int) -> pd.DataFrame:
     return clean_df(df)
 
 # TODO: improve filtering
-# TODO: improve sentence splitting 
+# TODO: improve sentence splitting
 def extract_ksentencewise(pdf_path: str, k: int, threshold: int = 1e10) -> pd.DataFrame:
     '''
     threshold: int = 1e10 - Max word count in sentences
@@ -204,7 +199,7 @@ def extract_ksentencewise(pdf_path: str, k: int, threshold: int = 1e10) -> pd.Da
     df = pd.DataFrame(columns=["pdf_name","page_nr", "page_section" ,"climate_related_no","climate_related_yes","domain_MetricsTargets","domain_RiskManagement" ,"domain_Strategy", "domain_Governance" ,"ron_risk", "ron_opportunity", "ron_neutral", "transition_risk_label", "text"])
     # since . is added at the end
     threshold = threshold - 1
-    # pdf extractor 
+    # pdf extractor
     reader = PdfReader(pdf_path)
 
     initial_text_len = 0
@@ -212,32 +207,32 @@ def extract_ksentencewise(pdf_path: str, k: int, threshold: int = 1e10) -> pd.Da
     for i, page in enumerate(tqdm(reader.pages, desc="Extracting text")):
         text = page.extract_text()
         initial_text_len = initial_text_len + len(text)
-        
+
         # clean df
         text = clean_df_pre(text)
 
         # split sentencewise
         text = text.split(".")
-        # TODO beachte Dezimalzahlen also z.b. 0.2 
+        # TODO beachte Dezimalzahlen also z.b. 0.2
 
         # index of position in text
         j = 0
-        jj = j + k  
+        jj = j + k
         while j < len(text):
 
             # sentences on index j to jj = jj+k
             j_text = ".".join(text[j:jj])
-        
+
             # bool whether the a sentence had to be cut to fit the threshold
             cut_sentences = False
-        
+
             # reduce j_text - 1 until it matches threshold, if smallest sequence is still too big, cut words
             while len(j_text) > threshold:
                 #print("j", j)
                 jj = jj - 1
                 #print("jj", jj)
                 j_text = ".".join(text[j:jj])
-                
+
                 # lenght of smallest subsequence == 0 -> cut words
                 if jj == j:
                     jj = j + 1
@@ -256,7 +251,7 @@ def extract_ksentencewise(pdf_path: str, k: int, threshold: int = 1e10) -> pd.Da
                         if len(current_subsequence) + len(word) <= threshold:
                             current_subsequence += word + " "
                         else:
-                            # append df 
+                            # append df
                             df = df._append({"pdf_name": pdf_path.split(".")[0].split("/")[-1],"text": current_subsequence.rstrip() + ".","page_nr":  i + 1, "page_section": int(j/k)}, ignore_index = True)
                             current_subsequence = word + " "
 
@@ -264,18 +259,18 @@ def extract_ksentencewise(pdf_path: str, k: int, threshold: int = 1e10) -> pd.Da
                         df = df._append({"pdf_name": pdf_path.split(".")[0].split("/")[-1],"text": current_subsequence.rstrip() + ".","page_nr":  i + 1, "page_section": int(j/k)}, ignore_index = True)
 
                     break
-    
+
 
             if not cut_sentences:
                 df = df._append({"pdf_name": pdf_path.split(".")[0].split("/")[-1],"text": j_text + ".","page_nr":  i + 1, "page_section": int(j/k)}, ignore_index = True)
-    
+
             j = jj
             jj = j + k
 
     print(f"initial_text_len {initial_text_len}")
     print(f'after: {len(".".join(df["text"]))}')
 
-    return clean_df(df) 
+    return clean_df(df)
 
 def clean_df(df: pd.DataFrame) -> pd.DataFrame:
 
@@ -284,14 +279,14 @@ def clean_df(df: pd.DataFrame) -> pd.DataFrame:
 
     # remove all witespaces
     df["text"] = df["text"].apply(lambda x: " ".join(x.split()))
-    
+
     # remove double dots
     df["text"] = df["text"].apply(lambda x: x.replace("..", "."))
-    
+
     return df
 
 def clean_df_pre(text: str) -> str:
-    
+
     # remove all witespaces
     text = " ".join(text.split())
 
@@ -299,15 +294,15 @@ def clean_df_pre(text: str) -> str:
 
 def store_df(df: pd.DataFrame, store_at: str = False):
     print(f"Store file")
-    if not store_at: 
+    if not store_at:
         df.to_csv(f"outputs/{df['pdf_name'][0]}.csv", sep=";")
-    else: 
+    else:
         df.to_csv(f"{store_at}/{df['pdf_name'][0]}.csv", sep=";")
 
 def filter(df: pd.DataFrame) -> pd.DataFrame:
     return df.loc[(df['climate_related'] == True) & (df['domain'] == TCFDDomain.Strategy.value) & (df['ron'] == Ron.Risk.value)]
 
-# to test quality of extraction 
+# to test quality of extraction
 def page_wise_text(pdf_path: str):
     reader = PdfReader(pdf_path)
     text = ""
@@ -325,30 +320,30 @@ def page_wise_text(pdf_path: str):
 def df_to_text(df: pd.DataFrame, pdf_path: str) -> str:
     text = ""
 
-    # iterate over groups 
+    # iterate over groups
     for name, group in df.groupby('page_nr'):
-        
+
         text = text + " ".join(group["text"])
         text = text + (f"\n-------------- page {name} -------------- \n")
 
     with open(f"outputs/{pdf_path.split('.')[0].split('/')[-1]}_df.txt", "w") as f:
         f.write(text)
-    
+
     return text
 
 if "__main__" == __name__:
-    
+
     ##### test extract_ksentencewise #####
     '''document_name = "Commerzbank_2022_EN-2.pdf"
-    
+
     df = extract_ksentencewise(f"pdfs/{document_name}", 10, threshold=400)
-    
+
     page_wise_text(f"pdfs/{document_name}")
-    
+
     df_to_text(df, f"pdfs/{document_name}")
 
     store_df(df)
-    
+
     print(df["text"].apply(len))'''
     ##### usual main #####
 
