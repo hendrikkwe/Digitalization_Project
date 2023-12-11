@@ -11,6 +11,7 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification
 import torch
 import torch.nn.functional as F
 import re
+from pdfminer.high_level import extract_text
 
 USE_API = False
 
@@ -52,20 +53,20 @@ GOAL:
 def pipeline(df: pd.DataFrame) -> pd.DataFrame:
     # extraction: pdf -> json of pages
 
-    for index, row in df.iterrows():
+    for index, row in tqdm(df.iterrows()):
 
         # climate related label, update row in df with output of add_climate_related_label
         row = add_climate_related_label(row)
         df.loc[index] = row
-        print(row)
+
         if row["climate_related_no"] < row["climate_related_yes"]:
-            print("Climate related")
+            #print("Climate related")
             row = add_domain_label(row)
             df.loc[index] = row
 
             #if row["domain"] == TCFDDomain.Strategy.value:
             if max([row["domain_MetricsTargets"], row["domain_RiskManagement"], row["domain_Strategy"], row["domain_Governance"]]) == row["domain_Strategy"]:
-                print("Strategy")
+                #print("Strategy")
                 row = add_ron_label(row)
                 df.loc[index] = row
 
@@ -75,10 +76,9 @@ def pipeline(df: pd.DataFrame) -> pd.DataFrame:
 
 def add_climate_related_label(row: pd.Series) -> pd.Series:
     if USE_API == True:
-        response = request_label_api(row["text"][0:30], API_URL_climate_related)
+        response = request_label_api(row["text"], API_URL_climate_related)
     else:
-        response = request_label_local(row["text"][0:30], tokenizer_climate_related, model_climate_related)
-    print(type(response))
+        response = request_label_local(row["text"], tokenizer_climate_related, model_climate_related)
 
     if type(response) == dict:
         row["climate_related_no"] = response["no"]
@@ -133,7 +133,6 @@ def request_label_api(text: str, api_url: str) -> str:
     payload = {"inputs": text}
     response = requests.post(api_url, headers=headers, json=payload)
 
-    print(response.status_code)
     if response.status_code == 200:
         print({r["label"]:r["score"] for r in response.json()[0]})
         return {r["label"]:r["score"] for r in response.json()[0]}
@@ -191,6 +190,86 @@ def extract_kwordwise(pdf_path: str, k: int) -> pd.DataFrame:
 
 # TODO: improve filtering
 # TODO: improve sentence splitting
+
+def extract_ksentencewise_pdfminer(pdf_path: str, k: int, threshold: int = 1e10) -> pd.DataFrame:
+    '''
+    threshold: int = 1e10 - Max word count in sentences
+    '''
+    # initialize df
+    df = pd.DataFrame(columns=["pdf_name","page_nr", "page_section" ,"climate_related_no","climate_related_yes","domain_MetricsTargets","domain_RiskManagement" ,"domain_Strategy", "domain_Governance" ,"ron_risk", "ron_opportunity", "ron_neutral", "transition_risk_label", "text"])
+    # since . is added at the end
+    threshold = threshold - 1
+    # extract text
+    text = extract_text(pdf_path)
+
+    initial_text_len = len(text)
+
+    # clean text
+    text = clean_df_pre(text)
+
+    # split sentencewise
+    text = text.split(".")
+    # TODO beachte Dezimalzahlen also z.b. 0.2
+
+    # index of position in text -> always text[j:jj]
+    j = 0
+    jj = j + k
+
+    while j < len(text):
+
+        # sentences on index j to jj = jj+k
+        j_text = ".".join(text[j:jj])
+
+        # bool whether the a sentence had to be cut to fit the threshold
+        cut_sentences = False
+
+        # reduce j_text - 1 until it matches threshold, if smallest sequence is still too big, cut words
+        while len(j_text) > threshold:
+                    
+            jj = jj - 1
+            j_text = ".".join(text[j:jj])
+
+            # lenght of smallest subsequence == 0 -> cut words
+            if jj == j:
+                jj = j + 1
+                j_text = ".".join(text[j:jj])
+
+                # set cut_sentences to True
+                cut_sentences = True
+
+                # when there is only one sentence left, seperate by words
+                words = j_text.split(" ")
+                # split in best possible way with max threshold words and without cutting words
+                current_subsequence = ""
+                for word in words:
+                    if len(current_subsequence) + len(word) <= threshold:
+                        current_subsequence += word + " "
+                    else:
+                        # append df
+                        df = df._append({"pdf_name": pdf_path.split(".")[0].split("/")[-1],"text": current_subsequence.rstrip() + ".","page_nr":  0, "page_section": 0}, ignore_index = True)
+                        # if now j_text without current subsequ is smaller than threshold, continue original
+                        j_text = j_text.replace(current_subsequence, "")
+
+                        #if len(j_text) < threshold: 
+                        #    continue
+
+                        current_subsequence = word + " "
+
+                if current_subsequence:
+                    df = df._append({"pdf_name": pdf_path.split(".")[0].split("/")[-1],"text": current_subsequence.rstrip() + ".","page_nr":  0, "page_section": 0}, ignore_index = True)
+                break
+
+            if not cut_sentences:
+                df = df._append({"pdf_name": pdf_path.split(".")[0].split("/")[-1],"text": j_text + ".","page_nr":  0, "page_section": 0}, ignore_index = True)
+
+            j = jj
+            jj = j + k
+
+        print(f"initial_text_len {initial_text_len}")
+        print(f'after: {len(".".join(df["text"]))}')
+
+        return clean_df(df)
+
 def extract_ksentencewise(pdf_path: str, k: int, threshold: int = 1e10) -> pd.DataFrame:
     '''
     threshold: int = 1e10 - Max word count in sentences
@@ -220,6 +299,8 @@ def extract_ksentencewise(pdf_path: str, k: int, threshold: int = 1e10) -> pd.Da
         jj = j + k
         while j < len(text):
 
+            
+
             # sentences on index j to jj = jj+k
             j_text = ".".join(text[j:jj])
 
@@ -228,9 +309,8 @@ def extract_ksentencewise(pdf_path: str, k: int, threshold: int = 1e10) -> pd.Da
 
             # reduce j_text - 1 until it matches threshold, if smallest sequence is still too big, cut words
             while len(j_text) > threshold:
-                #print("j", j)
+                
                 jj = jj - 1
-                #print("jj", jj)
                 j_text = ".".join(text[j:jj])
 
                 # lenght of smallest subsequence == 0 -> cut words
@@ -355,10 +435,6 @@ if "__main__" == __name__:
     files = os.listdir(folder_path)
     csv_names = [file.split(".")[-2] for file in files if file.endswith('.csv')]
 
-    print(csv_names)
-
-    document_names = ["Commerzbank_2022_EN-2.pdf"]
-
     for document_name in document_names:
 
         if document_name.split(".")[-2] in csv_names:
@@ -368,10 +444,13 @@ if "__main__" == __name__:
             print(len(df.index))
         else:
             print(f"Extract {document_name.split('.')[-2]}")
-            df = extract_ksentencewise(f"pdfs/{document_name}", 20, threshold=20000)
+            df = extract_ksentencewise_pdfminer(f"pdfs/{document_name}", 20, threshold=500)
+            #df = extract_ksentencewise(f"pdfs/{document_name}", 20, threshold=500)
             #df = extract_kwordwise(f"pdfs/{document_name}", 120)
             #df = extract_pagewise(f"pdfs/{document_name}")
 
-        df = pipeline(df)
+            print(max(df["text"].apply(len)))
+
+        #df = pipeline(df)
 
         store_df(df)
