@@ -6,11 +6,9 @@ from pypdf import PdfReader
 from tqdm import tqdm
 from enum import Enum
 import requests
-import time
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
-import torch
 import torch.nn.functional as F
-import re
+import sys
 from pdfminer.high_level import extract_text
 
 USE_API = False
@@ -358,10 +356,10 @@ def clean_df(df: pd.DataFrame) -> pd.DataFrame:
     df = df.drop_duplicates(subset=["text"])
 
     # remove all witespaces
-    df["text"] = df["text"].apply(lambda x: " ".join(x.split()))
+    df.loc[["text"],:] = df.loc[["text"],:].apply(lambda x: " ".join(x.split()))
 
     # remove double dots
-    df["text"] = df["text"].apply(lambda x: x.replace("..", "."))
+    df.loc[["text"],:] = df.loc[["text"],:].apply(lambda x: x.replace("..", "."))
 
     return df
 
@@ -437,20 +435,22 @@ if "__main__" == __name__:
 
     for document_name in document_names:
 
-        if document_name.split(".")[-2] in csv_names:
+        always_extract = False
+        
+        if document_name.split(".")[-2] in csv_names and always_extract:
             print(f"Load {document_name.split('.')[-2]}")
             df = pd.read_csv(f"outputs/{document_name.split('.')[-2]}.csv", index_col=0, on_bad_lines='skip', sep=";")
             print(df.head())
             print(len(df.index))
         else:
             print(f"Extract {document_name.split('.')[-2]}")
-            df = extract_ksentencewise_pdfminer(f"pdfs/{document_name}", 20, threshold=500)
-            #df = extract_ksentencewise(f"pdfs/{document_name}", 20, threshold=500)
+            #df = extract_ksentencewise_pdfminer(f"pdfs/{document_name}", 20, threshold=500)
+            df = extract_ksentencewise(f"pdfs/{document_name}", 20, threshold=500)
             #df = extract_kwordwise(f"pdfs/{document_name}", 120)
             #df = extract_pagewise(f"pdfs/{document_name}")
 
             print(max(df["text"].apply(len)))
 
-        #df = pipeline(df)
+        df = pipeline(df)
 
         store_df(df)
