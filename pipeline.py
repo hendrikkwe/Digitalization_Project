@@ -110,7 +110,7 @@ def add_ron_label(row: pd.Series) -> pd.Series:
     if USE_API == True:
         response = request_label_api(row["text"], API_URL_ron)
     else:
-        response = request_label_local(row["text"][0:30], tokenizer_ron, model_ron)
+        response = request_label_local(row["text"], tokenizer_ron, model_ron)
 
     if type(response) == dict:
         row["ron_risk"] = response["risk"]
@@ -223,7 +223,7 @@ def extract_ksentencewise_pdfminer(pdf_path: str, k: int, threshold: int = 1e10)
 
         # reduce j_text - 1 until it matches threshold, if smallest sequence is still too big, cut words
         while len(j_text) > threshold:
-                    
+
             jj = jj - 1
             j_text = ".".join(text[j:jj])
 
@@ -248,7 +248,7 @@ def extract_ksentencewise_pdfminer(pdf_path: str, k: int, threshold: int = 1e10)
                         # if now j_text without current subsequ is smaller than threshold, continue original
                         j_text = j_text.replace(current_subsequence, "")
 
-                        #if len(j_text) < threshold: 
+                        #if len(j_text) < threshold:
                         #    continue
 
                         current_subsequence = word + " "
@@ -297,7 +297,7 @@ def extract_ksentencewise(pdf_path: str, k: int, threshold: int = 1e10) -> pd.Da
         jj = j + k
         while j < len(text):
 
-            
+
 
             # sentences on index j to jj = jj+k
             j_text = ".".join(text[j:jj])
@@ -307,7 +307,7 @@ def extract_ksentencewise(pdf_path: str, k: int, threshold: int = 1e10) -> pd.Da
 
             # reduce j_text - 1 until it matches threshold, if smallest sequence is still too big, cut words
             while len(j_text) > threshold:
-                
+
                 jj = jj - 1
                 j_text = ".".join(text[j:jj])
 
@@ -425,7 +425,8 @@ if "__main__" == __name__:
     print(df["text"].apply(len))'''
     ##### usual main #####
 
-    folder_path = 'pdfs'
+    # folder_path = 'pdfs'
+    folder_path = 'reports'
     files = os.listdir(folder_path)
     document_names = [file for file in files if file.endswith('.pdf')]
 
@@ -433,21 +434,20 @@ if "__main__" == __name__:
     files = os.listdir(folder_path)
     csv_names = [file.split(".")[-2] for file in files if file.endswith('.csv')]
 
-    for document_name in document_names:
+    csv_names = []
+    print(csv_names)
 
-        always_extract = False
-        
-        if document_name.split(".")[-2] in csv_names and always_extract:
+    # document_names = ["Allianz Global Investors GmbH_Asset Manager_EN_2022.pdf"]
+    for document_name in document_names:
+        # ToDo: split by .pdf not .
+        if document_name.split(".")[-2] in csv_names:
             print(f"Load {document_name.split('.')[-2]}")
             df = pd.read_csv(f"outputs/{document_name.split('.')[-2]}.csv", index_col=0, on_bad_lines='skip', sep=";")
             print(df.head())
             print(len(df.index))
         else:
             print(f"Extract {document_name.split('.')[-2]}")
-            #df = extract_ksentencewise_pdfminer(f"pdfs/{document_name}", 20, threshold=500)
-            df = extract_ksentencewise(f"pdfs/{document_name}", 20, threshold=500)
-            #df = extract_kwordwise(f"pdfs/{document_name}", 120)
-            #df = extract_pagewise(f"pdfs/{document_name}")
+            df = extract_ksentencewise(f"reports/{document_name}", 20, threshold=500)
 
             print(max(df["text"].apply(len)))
 
