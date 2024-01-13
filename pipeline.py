@@ -409,6 +409,12 @@ def df_to_text(df: pd.DataFrame, pdf_path: str) -> str:
 
     return text
 
+def filter_df(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Filter only texts that are in ron field risk 
+    """
+    return df.loc[df["ron_risk"] > 0.4]
+
 if "__main__" == __name__:
 
     ##### test extract_ksentencewise #####
