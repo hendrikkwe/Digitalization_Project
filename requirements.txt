@@ -33,3 +33,5 @@ transformers==4.35.2
 typing_extensions==4.8.0
 tzdata==2023.3
 urllib3==2.1.0
+pdfminer==20191125
+pdfminer.six==20231228
