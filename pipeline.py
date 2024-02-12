@@ -91,7 +91,7 @@ def add_domain_label(row: pd.Series) -> pd.Series:
     if USE_API == True:
         response = request_label_api(row["text"], API_URL_tcfd)
     else:
-        response = request_label_local(row["text"][0:30], tokenizer_tcfd, model_tcfd)
+        response = request_label_local(row["text"], tokenizer_tcfd, model_tcfd)
 
     if type(response) == dict:
         row["domain_MetricsTargets"] = response["metrics"]
@@ -356,10 +356,10 @@ def clean_df(df: pd.DataFrame) -> pd.DataFrame:
     df = df.drop_duplicates(subset=["text"])
 
     # remove all witespaces
-    df.loc[["text"],:] = df.loc[["text"],:].apply(lambda x: " ".join(x.split()))
+    df["text"] = df["text"].apply(lambda x: " ".join(x.split()))
 
     # remove double dots
-    df.loc[["text"],:] = df.loc[["text"],:].apply(lambda x: x.replace("..", "."))
+    df["text"] = df["text"].apply(lambda x: x.replace("..", "."))
 
     return df
 
@@ -411,7 +411,7 @@ def df_to_text(df: pd.DataFrame, pdf_path: str) -> str:
 
 def filter_df(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Filter only texts that are in ron field risk 
+    Filter only texts that are in ron field risk
     """
     return df.loc[df["ron_risk"] > 0.4]
 
@@ -443,7 +443,6 @@ if "__main__" == __name__:
     csv_names = []
     print(csv_names)
 
-    # document_names = ["Allianz Global Investors GmbH_Asset Manager_EN_2022.pdf"]
     for document_name in document_names:
         # ToDo: split by .pdf not .
         if document_name.split(".")[-2] in csv_names:
