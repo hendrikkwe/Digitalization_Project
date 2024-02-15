@@ -1,6 +1,6 @@
 # Overview
 
-This project aims to extract ESG information such as climate-related risks and climate-related opportunities from annual sustainability reports using the Large Language Model, ClimateBERT. The pipeline consists of several downstream tasks including Climate-Detector, TCFD-Domain, and Climate-Sentiment.
+This project aims to extract ESG information such as climate-related risks and climate-related opportunities from annual sustainability reports using the Large Language Model, [ClimateBERT](https://huggingface.co/climatebert). The pipeline consists of several downstream tasks including Climate-Detector, TCFD-Domain, and Climate-Sentiment.
 
 # Requirements
 
