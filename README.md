@@ -22,8 +22,6 @@ This project aims to extract ESG information such as climate-related risks and c
 1. Prepare your annual sustainability reports in PDF format. Store the PDFs here: `./pdfs/`
 2. Run the pipeline script.
 
-    bashCopy code
-
     `$ python main.py`
 
 
