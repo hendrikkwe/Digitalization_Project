@@ -2,6 +2,8 @@
 
 This project aims to extract ESG information such as climate-related risks and climate-related opportunities from annual sustainability reports using the Large Language Model, [ClimateBERT](https://huggingface.co/climatebert). The pipeline consists of several downstream tasks including Climate-Detector, TCFD-Domain, and Climate-Sentiment.
 
+The code of the pipeline can be found in the public Github Repository \cite{GithubRepo}. \textbf{main.py} implements the basic data flow of the pipeline, it loops over all the PDF documents that lie in the respective folder and generates CSV that hold the text chunks of a PDF that are labeled as opportunity or risk. It first uses the function \textbf{extract\_ksentencewise} in the file \textbf{pdf\_extraction.py} for pre-processing. This function creates a dataframe that holds the chunks its rows. After that, the function \textbf{pipeline} is used to loop over this dataframe where each text chunk is run through the pipeline of downstream tasks as described in Subsection \ref{sub:pipe}. Hereby, the function \textbf{request\_label\_local} is used. Its parameters are a text chunk, a ClimateBERT model that classifies the text and a tokenizer, to tokenize the input before it is put into the model. Both the model and the tokenizer have to be loaded in advance. The function returns a dict with the labels of the model as keys and the estimated probabilities as an value.
+
 # Requirements
 
 - Python 3.x
